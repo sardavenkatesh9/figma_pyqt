@@ -1,7 +1,7 @@
 {
   "project_name": "DemoFlow",
   "document_name": "Sample Screen",
-  "created_at": "2026-10-15T12:30:37.553852+00:00",
+  "created_at": "2026-10-15T13:59:45.672828+00:00",
   "frames": [
     {
       "id": "frame-1",
@@ -36,13 +36,18 @@
     },
     {
       "path": "src/ui/main_window.py",
-      "sha256": "6d9342f9db7a625dd3581c66f046838ea59a6ea7791723f08c4950c89b634e48",
-      "size": 2004
+      "sha256": "09306c876850b478f6c7f635a1e0ca0da1b0517aadd46c12ab1b353f8464f88e",
+      "size": 2042
     },
     {
       "path": "src/ui/pages/base_page.py",
-      "sha256": "2f13157b0d3c7116c4abe529586e2a5634017a1a3383108280bd6b72469e914b",
-      "size": 1159
+      "sha256": "ecc1b5466818536d2ed9c967152d0e3eca57d347f0f330e020c651176897cdd2",
+      "size": 2120
+    },
+    {
+      "path": "src/ui/pages/widgets.py",
+      "sha256": "372577d8b904039d77e8046539f07dea92e1cc7dc86990c7ff2bf1daaa20d696",
+      "size": 6675
     },
     {
       "path": "src/ui/pages/__init__.py",
@@ -51,13 +56,13 @@
     },
     {
       "path": "src/ui/pages/login_page.py",
-      "sha256": "2b8a390548d53e2525a0642a9fd7c1fe35882e3aa350d39aa3c10c29b03acdf4",
-      "size": 678
+      "sha256": "39fb880e18ffe1b1aaf911b050274c82aad2ef7fe2ffc7e3774a5098843ef069",
+      "size": 676
     },
     {
       "path": "src/ui/pages/dashboard_page.py",
-      "sha256": "8fd2371e5215708f31de5e5bdec237fe3642e4521228af14201d64a2af430065",
-      "size": 539
+      "sha256": "cb076be1a035bb69301ab3d831940aa6fcdd0b2f5ef659eea44afb6aef04e583",
+      "size": 606
     },
     {
       "path": "src/ui/styles/tokens.qss",
@@ -66,13 +71,13 @@
     },
     {
       "path": "src/ui/styles/main.qss",
-      "sha256": "157efbf4f11549e15ec7837ac04bb96e1ee6cec5813749acee11afe5d5240c2e",
-      "size": 988
+      "sha256": "a2e66bfa23b6d698edb8ff34625e0c82c852ca63c530b4c265a9336d2d0d447f",
+      "size": 1166
     },
     {
       "path": "src/ui/styles/components.qss",
-      "sha256": "5ba7cc9ded033fb6f0ecdc4d86dd1aeb7f81ea5894a64a8d26c863b137c49b21",
-      "size": 1996
+      "sha256": "58c5de9302e9275c95cb0ddd76a565bb65d6c065dfdd65361ae28054f65cb8e5",
+      "size": 2072
     },
     {
       "path": "README.md",

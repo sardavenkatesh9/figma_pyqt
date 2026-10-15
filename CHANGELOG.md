@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Exported images are named by content hash (`fig_<hash>.png`): identical artwork is stored once and reused by every layer and page that shows it.
+- Generation runs on a cancellable daemon thread. Closing the window or pressing Ctrl+C cancels it at the next step (queued downloads are dropped, nothing is written), which fixes `QThread: Destroyed while thread is still running`.
+- Ctrl+C in the terminal now closes the app cleanly instead of raising `KeyboardInterrupt` inside Qt code; the frame-row `sizeHint` no longer measures text.
+- Workbench: generation progress is a real percentage shown as a neon progress bar in the footer (stage text plus %, from the pipeline's weighted stages) instead of status-bar messages.
+- Fix: `QFont::setPointSizeF: Point size <= 0` printed while painting the frame list; row fonts are now resized in pixels when the style sheet sizes them in pixels.
+- Generated pages now reproduce the Figma design: parser reads fills, gradients, strokes, corner radii, effects, text style, rotation, masks, visibility and render bounds; the generator emits styled boxes and real text at exact positions, bakes opacity into colors, renders drop shadows as pre-blurred pictures, and exports vectors/icons/image fills/masks/rotated layers through Figma's images API. On a real 12-frame dashboard file, four frames matched Figma's own render at 94-97% of pixels (mean difference 2.4-5.9/255).
+- Pages scale to fit the window (aspect kept); fonts can be bundled in `src/ui/assets/fonts`; repeated frame names are numbered in the sidebar.
+- Workbench: Generate fetches full frame detail and images in a background thread with progress; the token is kept in memory only for that step. Frame rows show name (numbered when repeated), page, size, layers and node id.
+- GUI: two-column dashboard with padded cards; frame rows show the frame name in bold with page/section, size and layer count beneath (and node id in the tooltip); Select all / Clear buttons.
 - Structure: `__init__.py` for every package, `.pre-commit-config.yaml` (ruff, black, mypy), broader `.gitignore`.
 - Docs rewritten to match the code (removed claims about staged output, path-traversal blocking and process isolation that the code does not implement); README gained usage, testing and structure sections.
 - Tests reorganised into `tests/unit` and `tests/integration` with shared `conftest.py`/`helpers.py`; 84 tests, 99% branch-aware coverage; CI enforces `--cov-fail-under=85`.

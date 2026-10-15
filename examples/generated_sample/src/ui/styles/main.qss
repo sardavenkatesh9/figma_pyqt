@@ -10,18 +10,33 @@ QLabel#appTitle, QLabel#pageTitle {
     font-weight: 700;
     letter-spacing: 1px;
 }
-QLabel#stepLabel {
+QLabel#subtitle {
+    color: #8A8FB0;
+    font-size: 14px;
+}
+QLabel#stepNumber {
     color: #FF2BD6;
-    font-size: 11px;
+    font-size: 22px;
+    font-weight: 800;
+}
+QLabel#stepLabel {
+    color: #E8EAF6;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 3px;
 }
-QWidget#workflowContent, QFrame#card {
+QLabel#hint {
+    color: #8A8FB0;
+}
+QLabel#result {
+    color: #00F0FF;
+}
+QFrame#card {
     background: #0E0E18;
     border: 1px solid #2A2A44;
     border-radius: 14px;
 }
-QWidget#workflowContent QLabel, QFrame#card QLabel {
+QFrame#card QLabel {
     background: transparent;
 }
 QStatusBar {

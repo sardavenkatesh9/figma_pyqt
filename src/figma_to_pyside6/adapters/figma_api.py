@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
-from figma_to_pyside6.adapters.figma_json import parse_figma_document
-from figma_to_pyside6.domain.models import FigmaDocument
+from figma_to_pyside6.adapters.figma_json import parse_figma_document, parse_frame
+from figma_to_pyside6.domain.models import FigmaDocument, FigmaFrame
 
 FIGMA_API_BASE = "https://api.figma.com/v1/files"
 # ``depth`` limits how far the REST API traverses the node tree. Per the Figma docs, for
@@ -94,3 +95,32 @@ def document_from_response(
         raise ValueError("The linked Figma section could not be found.")
     wrapped = {"name": node.get("name"), "document": node}
     return parse_figma_document(wrapped, source=source, recurse_frames=False)
+
+
+def build_nodes_url(file_key: str, node_ids: Sequence[str]) -> str:
+    """URL returning the full subtree (no depth limit) of the given nodes."""
+    return f"{FIGMA_API_BASE}/{file_key}/nodes?ids={quote(','.join(node_ids), safe=':,')}"
+
+
+def build_images_url(file_key: str, node_ids: Sequence[str], scale: float) -> str:
+    """URL that renders the given nodes to PNG; the reply maps node id to a download link."""
+    ids = quote(",".join(node_ids), safe=":,")
+    base = FIGMA_API_BASE.replace("/files", "/images")
+    return f"{base}/{file_key}?ids={ids}&format=png&scale={scale:g}"
+
+
+def frame_from_nodes_response(
+    payload: dict[str, Any], node_id: str, container: str | None = None
+) -> FigmaFrame:
+    """Parse the full subtree of one frame from a ``/nodes`` response.
+
+    Raises:
+        ValueError: If the node is missing from the response or is not a frame.
+    """
+    entry = payload.get("nodes", {}).get(node_id)
+    node = entry.get("document") if entry else None
+    if not node:
+        raise ValueError("The Figma layer could not be found.")
+    if node.get("type") != "FRAME":
+        raise ValueError(f"Layer {node_id} is not a frame.")
+    return parse_frame(node, container)

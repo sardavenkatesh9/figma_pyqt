@@ -7,7 +7,11 @@ src/figma_to_pyside6/
   domain/        FigmaNode, FigmaFrame, FigmaDocument, ConversionResult   (no dependencies)
   adapters/      figma_json.py  parse Figma JSON into domain models
                  figma_api.py   validate Figma links, build REST requests, parse responses
+                 figma_client.py  blocking urllib client used by the background job
   application/   codegen.py             pure source generation (returns strings)
+                 styling.py             Figma paints/strokes/radii -> Qt style sheet fragments
+                 raster.py              which layers must be exported as images
+                 figma_pipeline.py      fetch frame detail + exported images, then generate
                  conversion_service.py  writes the project; decides what may be overwritten
                  validation_service.py  checks a generated project (used by CLI and generator)
   ui/            main_window.py  PySide6 workbench (network + widgets only)
@@ -23,7 +27,8 @@ Dependencies point inwards: `ui` and `__main__` use `application` and `adapters`
 
 ## Data flow
 
-Figma link or JSON -> `adapters` -> `FigmaDocument` -> `codegen.plan_pages` (unique module and
+Figma link -> verify (shallow frame list) -> select -> `figma_pipeline`: full frame detail + exported
+PNGs -> `FigmaDocument`; or local JSON -> `adapters` -> `FigmaDocument`. Then `codegen.plan_pages` (unique module and
 class per frame) -> `codegen.render_*` -> `conversion_service` writes files -> manifest and
 `validation_report.json`.
 
@@ -42,7 +47,8 @@ One page module per frame under `src/ui/pages/`, a `BasePage`, a page registry, 
 
 ## Known limits
 
-* Only frames, their children and grandchildren are fetched from the REST API (`depth` is capped
-  to keep responses small); deeper nesting is not rendered.
-* Layout (auto-layout, constraints), images, gradients and effects are not converted; unsupported
-  node types are rendered as plain frames and reported as warnings.
+* Verification only lists frames (shallow request); Generate fetches the selected frames in full.
+* Positions are absolute at design size: auto-layout and constraints are not reproduced, and the page
+  is scaled uniformly to the window.
+* Inner shadows, blur effects, blend modes and dashed strokes are not converted. Unsupported node
+  types are reported as warnings.

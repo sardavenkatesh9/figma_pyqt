@@ -39,7 +39,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         sidebar = QWidget()
-        sidebar.setFixedWidth(240)
+        sidebar.setFixedWidth(260)
         nav = QVBoxLayout(sidebar)
         nav.setContentsMargins(12, 16, 12, 16)
         self.stack = QStackedWidget()
@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
 
         for index, (title, page_class) in enumerate(PAGES):
             button = QPushButton(title)
+            button.setToolTip(title)
             button.setObjectName("navButton")
             button.setCheckable(True)
             button.clicked.connect(lambda _checked=False, i=index: self.stack.setCurrentIndex(i))

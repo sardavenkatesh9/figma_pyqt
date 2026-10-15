@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from helpers import (
     FIXTURE,
+    FakeFigmaClient,
     FakeNetworkManager,
     FakeNetworkReply,
 )
@@ -38,7 +39,7 @@ def test_workbench_starts_maximized_without_theme_switchers(qt_app):
     assert "#00F0FF" in window.styleSheet().upper()
 
 
-def test_verification_selects_frames_and_generates_project(qt_app, tmp_path):
+def test_verification_selects_frames_and_generates_project(qt_app, qtbot, tmp_path):
     window = WorkbenchMainWindow()
     network = FakeNetworkManager()
     window._network_manager = network
@@ -87,14 +88,23 @@ def test_verification_selects_frames_and_generates_project(qt_app, tmp_path):
     assert {frame.name for frame in window.selected_frames} == {"Login"}
     assert window.generate_button.isEnabled()
 
+    # Generating uses the token kept in memory (the field itself was cleared on Verify).
+    assert window._session_token == "test-token"
+    window._client_factory = lambda token: FakeFigmaClient(
+        {frame["id"]: frame for frame in frame_nodes}
+    )
     output_dir = tmp_path / "generated"
     window.project_name_input.setText("GuiGenerated")
     window.output_dir_input.setText(str(output_dir))
     window._generate_project()
+    qtbot.waitUntil(lambda: not window.busy, timeout=10000)
 
     pages_dir = output_dir / "src" / "ui" / "pages"
     assert (pages_dir / "login_page.py").exists()
     assert not (pages_dir / "dashboard_page.py").exists()
+    assert "Project generated at" in window.result_label.text()
+    assert window.generate_button.text() == "Generate project"
+    assert window.generate_button.isEnabled()
 
 
 def test_invalid_figma_link_does_not_send_request(qt_app):

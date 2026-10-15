@@ -72,6 +72,10 @@ QPushButton#generateButton:disabled {
     background: #161626;
     color: #8A8FB0;
 }
+QPushButton#smallButton {
+    padding: 5px 12px;
+    font-size: 12px;
+}
 QPushButton#navButton {
     text-align: left;
     background: transparent;

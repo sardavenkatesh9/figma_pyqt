@@ -52,13 +52,13 @@ def test_parser_collects_characters_for_text_nodes() -> None:
 def test_parser_warns_on_unsupported_node_and_stray_layout() -> None:
     frame = make_frame(
         children=[
-            {"id": "a", "type": "ELLIPSE", "name": "e"},
+            {"id": "a", "type": "STICKY", "name": "e"},
             {"id": "b", "type": "TEXT", "name": "t", "layoutMode": "HORIZONTAL"},
         ]
     )
     ellipse, text = make_document(frame).frames[0].children
 
-    assert ellipse.warnings == ["Unsupported Figma node type: ELLIPSE"]
+    assert ellipse.warnings == ["Unsupported Figma node type: STICKY"]
     assert text.warnings == ["Layout metadata on unsupported node: TEXT"]
 
 

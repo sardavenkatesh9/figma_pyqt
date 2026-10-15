@@ -17,38 +17,103 @@ from figma_to_pyside6.adapters.figma_json import load_figma_document, parse_figm
 from figma_to_pyside6.application.conversion_service import convert_document
 
 
-def test_generator_maps_node_types_to_widgets(tmp_path: Path) -> None:
+def test_generator_builds_widgets_from_figma_layers(tmp_path: Path) -> None:
     frame = make_frame(
         children=[
-            {"id": "1", "type": "TEXT", "name": "Title", "characters": "Hi", "x": 5, "y": 6},
-            {"id": "2", "type": "INSTANCE", "name": "Go", "width": 10, "height": 10},
-            {"id": "3", "type": "VECTOR", "name": "Icon"},
+            {
+                "id": "1",
+                "type": "TEXT",
+                "name": "Title",
+                "characters": "Hi",
+                "x": 5,
+                "y": 6,
+                "width": 40,
+                "height": 14,
+            },
+            {
+                "id": "2",
+                "type": "INSTANCE",
+                "name": "Go",
+                "x": 0,
+                "y": 30,
+                "width": 30,
+                "height": 12,
+            },
+            {
+                "id": "3",
+                "type": "VECTOR",
+                "name": "Icon",
+                "x": 50,
+                "y": 50,
+                "width": 8,
+                "height": 8,
+            },
             {
                 "id": "4",
                 "type": "GROUP",
                 "name": "Box",
-                "children": [{"id": "5", "type": "TEXT", "name": "Inner"}],
+                "x": 20,
+                "y": 60,
+                "width": 50,
+                "height": 20,
+                "children": [
+                    {
+                        "id": "5",
+                        "type": "TEXT",
+                        "name": "Inner",
+                        "x": 22,
+                        "y": 62,
+                        "width": 30,
+                        "height": 14,
+                    }
+                ],
             },
         ]
+    )
+    result = convert_document(make_document(frame), output_dir=tmp_path)
+    source = page_source(tmp_path)
+
+    assert 'text(canvas, "Hi", 5, ' in source  # characters preferred over the layer name
+    assert "box(canvas, 0, 30, 30, 12," in source  # an instance is a box, not a push button
+    assert "QPushButton" not in source and "QLabel" not in source
+    assert "FRAME_SIZE = (100, 200)" in source
+    assert 'text(n2, "Inner"' in source or 'text(canvas, "Inner"' in source
+    assert "image(" not in source  # the vector needs an exported image that was not supplied
+    assert any("1 vector/image layer(s) were left out" in w for w in result.warnings)
+
+
+def test_generator_keeps_negative_offsets_but_drops_layers_outside_the_frame(
+    tmp_path: Path,
+) -> None:
+    frame = make_frame(
+        x=100,
+        y=100,
+        children=[
+            {
+                "id": "1",
+                "type": "RECTANGLE",
+                "name": "peeks",
+                "x": 90,
+                "y": 95,
+                "width": 30,
+                "height": 30,
+            },
+            {
+                "id": "2",
+                "type": "RECTANGLE",
+                "name": "outside",
+                "x": 10,
+                "y": 10,
+                "width": 5,
+                "height": 5,
+            },
+        ],
     )
     convert_document(make_document(frame), output_dir=tmp_path)
     source = page_source(tmp_path)
 
-    assert 'QLabel("Hi", canvas)' in source  # characters preferred over name
-    assert 'QPushButton("Go", canvas)' in source
-    assert "= QFrame(canvas)" in source
-    assert source.count('setObjectName("card")') == 1  # only frames that have children
-    assert 'QLabel("Inner", node_4)' in source  # nested child parented to its group
-    assert "FRAME_SIZE = (100, 200)" in source
-    assert "setGeometry(5, 6, 1, 1)" in source  # quirk: zero size is bumped to 1
-
-
-def test_generator_keeps_negative_child_offsets(tmp_path: Path) -> None:
-    child = {"id": "1", "type": "TEXT", "name": "t", "x": 40, "y": 90, "width": 5, "height": 5}
-    frame = make_frame(x=100, y=100, children=[child])
-    convert_document(make_document(frame), output_dir=tmp_path)
-
-    assert "setGeometry(-60, -10, 5, 5)" in page_source(tmp_path)  # B5: no clamping
+    assert "box(canvas, -10, -5, 30, 30," in source  # B5: no clamping of partial overlaps
+    assert "# outside" not in source  # fully outside the frame: nothing to draw
 
 
 def test_generator_escapes_hostile_frame_names(tmp_path: Path) -> None:
@@ -158,14 +223,14 @@ def test_b6_parser_warnings_reach_conversion_result(tmp_path: Path) -> None:
                 "id": "g",
                 "type": "GROUP",
                 "name": "Box",
-                "children": [{"id": "e", "type": "ELLIPSE", "name": "Dot"}],
+                "children": [{"id": "e", "type": "STICKY", "name": "Dot"}],
             }
         ],
     )
 
     result = convert_document(make_document(frame), output_dir=tmp_path)
 
-    assert result.warnings == ["Home / Box / Dot: Unsupported Figma node type: ELLIPSE"]
+    assert result.warnings == ["Home / Box / Dot: Unsupported Figma node type: STICKY"]
 
 
 def test_convert_document_creates_one_page_per_frame(tmp_path):
@@ -226,3 +291,39 @@ def test_duplicate_frame_names_get_unique_pages(tmp_path):
         "screen_404_page.py",
         "base_page.py",
     }
+
+
+def test_convert_document_writes_identical_images_once(tmp_path: Path) -> None:
+    from helpers import raw_node, tiny_png
+
+    from figma_to_pyside6.adapters.figma_json import parse_frame
+    from figma_to_pyside6.application.raster import asset_filename
+    from figma_to_pyside6.domain.models import FigmaDocument
+
+    frame = parse_frame(
+        raw_node(
+            "FRAME",
+            "F",
+            0,
+            0,
+            100,
+            100,
+            id="1:1",
+            children=[
+                raw_node("VECTOR", f"v{i}", i * 12, 0, 10, 10, id=f"1:v{i}") for i in range(3)
+            ],
+        )
+    )
+    same, other = tiny_png(), tiny_png(color="#00ff00")
+    assets = {"1:v0": same, "1:v1": same, "1:v2": other}
+
+    result = convert_document(
+        FigmaDocument("D", "0:0", [frame]), output_dir=tmp_path, assets=assets
+    )
+
+    files = sorted(p.name for p in (tmp_path / "src/ui/assets").glob("*.png"))
+    assert files == sorted({asset_filename(same), asset_filename(other)})
+    page = page_source(tmp_path, "f")
+    assert page.count(asset_filename(same)) == 2 and page.count(asset_filename(other)) == 1
+    listed = [p.name for p in result.generated_files if p.suffix == ".png"]
+    assert sorted(listed) == files  # the manifest lists each picture once

@@ -48,18 +48,33 @@ QLabel#appTitle, QLabel#pageTitle {{
     font-weight: 700;
     letter-spacing: 1px;
 }}
-QLabel#stepLabel {{
+QLabel#subtitle {{
+    color: {c["muted"]};
+    font-size: 14px;
+}}
+QLabel#stepNumber {{
     color: {c["magenta"]};
-    font-size: 11px;
+    font-size: 22px;
+    font-weight: 800;
+}}
+QLabel#stepLabel {{
+    color: {c["text"]};
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 3px;
 }}
-QWidget#workflowContent, QFrame#card {{
+QLabel#hint {{
+    color: {c["muted"]};
+}}
+QLabel#result {{
+    color: {c["cyan"]};
+}}
+QFrame#card {{
     background: {c["surface"]};
     border: 1px solid {c["border"]};
     border-radius: 14px;
 }}
-QWidget#workflowContent QLabel, QFrame#card QLabel {{
+QFrame#card QLabel {{
     background: transparent;
 }}
 QStatusBar {{
@@ -162,6 +177,24 @@ QPushButton#generateButton:hover {{
 QPushButton#generateButton:disabled {{
     background: {c["raised"]};
     color: {c["muted"]};
+}}
+QPushButton#smallButton {{
+    padding: 5px 12px;
+    font-size: 12px;
+}}
+QProgressBar#generateProgress {{
+    background: {c["window"]};
+    border: 1px solid {c["cyan"]};
+    border-radius: 9px;
+    color: {c["text"]};
+    font-weight: 600;
+    text-align: center;
+    min-height: 18px;
+    max-height: 18px;
+}}
+QProgressBar#generateProgress::chunk {{
+    border-radius: 8px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {c["cyan"]}, stop:1 {c["magenta"]});
 }}
 QPushButton#navButton {{
     text-align: left;
