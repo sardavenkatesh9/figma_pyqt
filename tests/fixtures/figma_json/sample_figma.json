@@ -1,0 +1,34 @@
+{
+  "document": {
+    "id": "doc-1",
+    "name": "Sample Screen",
+    "type": "DOCUMENT",
+    "children": [
+      {
+        "id": "frame-1",
+        "name": "Login",
+        "type": "FRAME",
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 640,
+        "children": [
+          {"id": "txt-1", "name": "Welcome", "type": "TEXT", "x": 32, "y": 48, "width": 160, "height": 40, "fills": [{"type": "SOLID", "color": {"r": 0.1, "g": 0.1, "b": 0.1}}]},
+          {"id": "btn-1", "name": "Login", "type": "INSTANCE", "x": 60, "y": 420, "width": 240, "height": 48, "componentId": "comp-1"}
+        ]
+      },
+      {
+        "id": "frame-2",
+        "name": "Dashboard",
+        "type": "FRAME",
+        "x": 0,
+        "y": 0,
+        "width": 412,
+        "height": 732,
+        "children": [
+          {"id": "txt-2", "name": "Overview", "type": "TEXT", "x": 40, "y": 30, "width": 180, "height": 32, "fills": [{"type": "SOLID", "color": {"r": 0.9, "g": 0.9, "b": 0.9}}]}
+        ]
+      }
+    ]
+  }
+}

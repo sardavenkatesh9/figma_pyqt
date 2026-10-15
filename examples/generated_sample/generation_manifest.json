@@ -1,0 +1,61 @@
+{
+  "project_name": "DemoFlow",
+  "document_name": "Sample Screen",
+  "created_at": "2026-10-15T09:13:01.190172+00:00",
+  "frames": [
+    {
+      "id": "frame-1",
+      "name": "Login",
+      "width": 360,
+      "height": 640
+    },
+    {
+      "id": "frame-2",
+      "name": "Dashboard",
+      "width": 412,
+      "height": 732
+    }
+  ],
+  "files": [
+    {
+      "path": "main.py",
+      "sha256": "3cf8b84024ba5e7e9f99befe0f92c99551abd22528655ec2a749ba74f6535888",
+      "size": 750
+    },
+    {
+      "path": "src\\ui\\__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "src\\ui\\main_window.py",
+      "sha256": "9088838144d34609b4ab51390435fa5a81d370d53519369dfa22139c7b08e6de",
+      "size": 769
+    },
+    {
+      "path": "src\\ui\\styles\\tokens.qss",
+      "sha256": "64e0def27731641b612c2964f02a48b8cc4328836fdc2eac2f943f41d7ceccd6",
+      "size": 139
+    },
+    {
+      "path": "src\\ui\\styles\\main.qss",
+      "sha256": "07186ac6f4e2bb558aeaccf23aa1ecb66f73e2a7d79db5cf2d77d81cf893c761",
+      "size": 108
+    },
+    {
+      "path": "src\\ui\\styles\\components.qss",
+      "sha256": "0d62b34e06b2060009c0f6dfa4621fbeb7ecae0f9b128dd52bd659e4ce3b07f2",
+      "size": 112
+    },
+    {
+      "path": "README.md",
+      "sha256": "9129e8f033b95d91185a4ef848f1098ff191eeddd57bf58d5428b63f6164e413",
+      "size": 44
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "4b3361d48a47eac1c43fa2f4a911fc8e3cd523b29569b8af0fd7c72b26a48892",
+      "size": 54
+    }
+  ]
+}

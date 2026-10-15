@@ -1,0 +1,18 @@
+{
+  "project_name": "DemoFlow",
+  "document_name": "Sample Screen",
+  "checks": [
+    {
+      "id": "GEN-001",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "Generated project files exist"
+    },
+    {
+      "id": "GEN-002",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "Generated project is importable"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+QWidget {
+    color: #1f2937;
+    background-color: #f8fafc;
+}
+
+QLabel#screenTitle {
+    font-size: 24px;
+    font-weight: 600;
+}

@@ -1,0 +1,9 @@
+@import "tokens.qss";
+
+QMainWindow {
+    background: #f8fafc;
+}
+
+QLabel {
+    padding: 6px 10px;
+}
