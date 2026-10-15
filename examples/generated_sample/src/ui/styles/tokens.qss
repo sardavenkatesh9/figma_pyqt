@@ -1,9 +1,12 @@
 QWidget {
-    color: #1f2937;
-    background-color: #f8fafc;
+    color: #E8EAF6;
+    background-color: #07070D;
+    font-family: "Segoe UI", "Inter", "Helvetica Neue", "Ubuntu", sans-serif;
+    font-size: 14px;
 }
-
-QLabel#screenTitle {
-    font-size: 24px;
-    font-weight: 600;
+QToolTip {
+    color: #00F0FF;
+    background: #0E0E18;
+    border: 1px solid #00F0FF;
+    padding: 4px 8px;
 }

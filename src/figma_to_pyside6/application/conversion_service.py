@@ -1,163 +1,160 @@
+"""Generate a runnable PySide6 project, one page per Figma frame.
+
+File ownership on regeneration:
+
+* *Generated* files carry :data:`GENERATED_MARKER` and are rewritten every run
+  (main entry point, main window, base page, page registry, one module per frame).
+* *User-owned* files (README, pyproject, style sheets, package ``__init__`` files) are
+  only created when missing, so hand edits survive regeneration.
+* A generated file that has lost its marker is treated as hand-written: it is left
+  alone and reported in :attr:`ConversionResult.warnings`.
+"""
+
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
+from figma_to_pyside6 import config
+from figma_to_pyside6.application import codegen
+from figma_to_pyside6.application.codegen import GENERATED_MARKER, PagePlan
+from figma_to_pyside6.application.validation_service import (
+    MANIFEST_NAME,
+    validate_generated_project,
+    write_validation_report,
+)
 from figma_to_pyside6.domain.models import ConversionResult, FigmaDocument
+from figma_to_pyside6.theme import components_qss, main_qss, tokens_qss
+
+logger = logging.getLogger(__name__)
 
 
-def _sha256(path: Path) -> str:
-    hasher = hashlib.sha256()
-    hasher.update(path.read_bytes())
-    return hasher.hexdigest()
+class _ProjectWriter:
+    """Writes project files while honoring the generated/user-owned distinction."""
 
+    def __init__(self, base_dir: Path) -> None:
+        self.base_dir = base_dir
+        self.files: list[Path] = []
+        self.warnings: list[str] = []
 
-def _write_if_missing(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
+    def generated(self, relative: str, content: str) -> None:
+        """Write a generated file, unless it was taken over by hand."""
+        path = self.base_dir / relative
+        if path.exists() and GENERATED_MARKER not in path.read_text(encoding="utf-8"):
+            message = f"{relative} has no generator marker; kept your version"
+            logger.warning(message)
+            self.warnings.append(message)
+        else:
+            self._write(path, content)
+        self.files.append(path)
+
+    def user_owned(self, relative: str, content: str) -> None:
+        """Create a user-owned file only if it does not exist yet."""
+        path = self.base_dir / relative
+        if not path.exists():
+            self._write(path, content)
+        self.files.append(path)
+
+    @staticmethod
+    def _write(path: Path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+
+
+def _remove_stale_pages(pages_dir: Path, plans: list[PagePlan]) -> None:
+    """Delete generated pages of frames that are no longer part of the document."""
+    wanted = {plan.module_file for plan in plans}
+    for stale in pages_dir.glob("*_page.py"):
+        if stale.name not in wanted and GENERATED_MARKER in stale.read_text(encoding="utf-8"):
+            logger.info("Removing stale generated page %s", stale)
+            stale.unlink()
+
+
+def _write_project_files(
+    writer: _ProjectWriter, document: FigmaDocument, project_name: str, plans: list[PagePlan]
+) -> None:
+    pages = "src/ui/pages"
+    writer.generated("main.py", codegen.render_main())
+    writer.user_owned("src/__init__.py", "")
+    writer.user_owned("src/ui/__init__.py", "")
+    writer.generated("src/ui/main_window.py", codegen.render_main_window(project_name))
+    writer.generated(f"{pages}/base_page.py", codegen.BASE_PAGE_SOURCE)
+    writer.generated(f"{pages}/__init__.py", codegen.render_pages_registry(plans))
+    for plan in plans:
+        writer.generated(f"{pages}/{plan.module_file}", codegen.render_page(plan))
+    writer.user_owned("src/ui/styles/tokens.qss", tokens_qss())
+    writer.user_owned("src/ui/styles/main.qss", main_qss())
+    writer.user_owned("src/ui/styles/components.qss", components_qss())
+    writer.user_owned("README.md", codegen.render_readme(project_name, document.name))
+    writer.user_owned("pyproject.toml", codegen.render_pyproject())
+
+
+def _build_manifest(
+    document: FigmaDocument, project_name: str, plans: list[PagePlan], writer: _ProjectWriter
+) -> dict[str, object]:
+    return {
+        "project_name": project_name,
+        "document_name": document.name,
+        "created_at": datetime.now(UTC).isoformat(),
+        "frames": [
+            {**plan.frame.summary(), "page": f"src/ui/pages/{plan.module_file}"} for plan in plans
+        ],
+        "files": [
+            {
+                "path": path.relative_to(writer.base_dir).as_posix(),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+            }
+            for path in writer.files
+        ],
+    }
 
 
 def convert_document(
     document: FigmaDocument,
-    project_name: str = "GeneratedApp",
+    project_name: str = config.DEFAULT_PROJECT_NAME,
     output_dir: str | Path | None = None,
 ) -> ConversionResult:
-    base_dir = Path(output_dir) if output_dir is not None else Path.cwd() / "generated_project"
-    base_dir.mkdir(parents=True, exist_ok=True)
-    ui_dir = base_dir / "src" / "ui"
-    styles_dir = ui_dir / "styles"
-    styles_dir.mkdir(parents=True, exist_ok=True)
-    screen_names = [frame.name for frame in document.frames]
+    """Generate a PySide6 project with one page module per frame.
 
-    main_window_contents = f"""from __future__ import annotations
+    Args:
+        document: Parsed Figma document; its ``frames`` become pages.
+        project_name: Window title and project name.
+        output_dir: Target directory; defaults to ``./generated_project``.
 
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget
+    Returns:
+        Paths of the generated files, manifest and validation report. ``warnings`` lists
+        generated files that were left untouched because they were edited by hand.
+    """
+    base_dir = Path(output_dir) if output_dir is not None else config.default_output_dir()
+    plans = codegen.plan_pages(document.frames)
+    pages_dir = base_dir / "src" / "ui" / "pages"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    _remove_stale_pages(pages_dir, plans)
 
+    writer = _ProjectWriter(base_dir)
+    _write_project_files(writer, document, project_name, plans)
+    for plan in plans:
+        writer.warnings.extend(plan.frame.iter_warnings())
 
-class MainWindow(QMainWindow):
-    def __init__(self) -> None:\n        super().__init__()
-        self.setWindowTitle({json.dumps(project_name)})
-        self.resize(1000, 700)
-        central = QWidget(self)
-        layout = QVBoxLayout(central)
-        label = QLabel({json.dumps(document.name)})
-        label.setObjectName("screenTitle")
-        layout.addWidget(label)
-        for screen_name in {json.dumps(screen_names)}:
-            layout.addWidget(QLabel(screen_name))
-        self.setCentralWidget(central)
-
-
-if __name__ == "__main__":
-    app = QApplication([])
-    window = MainWindow()
-    window.show()
-    app.exec()
-"""
-
-    qss_tokens = """QWidget {
-    color: #1f2937;
-    background-color: #f8fafc;
-}
-
-QLabel#screenTitle {
-    font-size: 24px;
-    font-weight: 600;
-}
-"""
-
-    main_qss = """@import "tokens.qss";
-
-QMainWindow {
-    background: #f8fafc;
-}
-
-QLabel {
-    padding: 6px 10px;
-}
-"""
-
-    component_qss = """QPushButton {
-    background: #2563eb;
-    color: white;
-    border-radius: 8px;
-    padding: 8px 12px;
-}
-"""
-
-    main_py = base_dir / "main.py"
-    main_py.write_text(main_window_contents, encoding="utf-8")
-    _write_if_missing(ui_dir / "__init__.py", "")
-    _write_if_missing(ui_dir / "main_window.py", main_window_contents)
-    _write_if_missing(styles_dir / "tokens.qss", qss_tokens)
-    _write_if_missing(styles_dir / "main.qss", main_qss)
-    _write_if_missing(styles_dir / "components.qss", component_qss)
-    _write_if_missing(
-        base_dir / "README.md", f"# {project_name}\n\nGenerated from {document.name}\n"
-    )
-    _write_if_missing(
-        base_dir / "pyproject.toml", '[project]\nname = "generated-app"\nversion = "0.1.0"\n'
-    )
-
-    generated_files = [
-        main_py,
-        ui_dir / "__init__.py",
-        ui_dir / "main_window.py",
-        styles_dir / "tokens.qss",
-        styles_dir / "main.qss",
-        styles_dir / "components.qss",
-        base_dir / "README.md",
-        base_dir / "pyproject.toml",
-    ]
-
-    manifest = {
-        "project_name": project_name,
-        "document_name": document.name,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "frames": [
-            {"id": frame.node_id, "name": frame.name, "width": frame.width, "height": frame.height}
-            for frame in document.frames
-        ],
-        "files": [
-            {
-                "path": str(path.relative_to(base_dir)),
-                "sha256": _sha256(path),
-                "size": path.stat().st_size,
-            }
-            for path in generated_files
-        ],
-    }
-    manifest_path = base_dir / "generation_manifest.json"
+    manifest_path = base_dir / MANIFEST_NAME
+    manifest = _build_manifest(document, project_name, plans, writer)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    validation_contents = {
-        "project_name": project_name,
-        "document_name": document.name,
-        "checks": [
-            {
-                "id": "GEN-001",
-                "status": "PASS",
-                "severity": "INFO",
-                "description": "Generated project files exist",
-            },
-            {
-                "id": "GEN-002",
-                "status": "PASS",
-                "severity": "INFO",
-                "description": "Generated project is importable",
-            },
-        ],
-    }
-    validation_report_path = base_dir / "validation_report.json"
-    validation_report_path.write_text(json.dumps(validation_contents, indent=2), encoding="utf-8")
+    report = validate_generated_project(base_dir)
+    report["project_name"] = project_name
+    report["document_name"] = document.name
+    report_path = write_validation_report(base_dir, report)
 
+    logger.info("Generated %d pages in %s", len(plans), base_dir)
     return ConversionResult(
         project_name=project_name,
         output_dir=base_dir,
-        generated_files=generated_files,
+        generated_files=writer.files,
         manifest_path=manifest_path,
-        validation_report_path=validation_report_path,
+        validation_report_path=report_path,
+        warnings=writer.warnings,
     )

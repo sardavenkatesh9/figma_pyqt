@@ -1,55 +1,22 @@
+"""Tests for gui."""
+
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 import pytest
+from helpers import (
+    FIXTURE,
+    FakeNetworkManager,
+    FakeNetworkReply,
+)
 from PySide6.QtCore import Qt
-from PySide6.QtNetwork import QNetworkReply, QNetworkRequest
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtNetwork import QNetworkReply
+from PySide6.QtWidgets import QComboBox, QLineEdit
 
-from figma_to_pyside6.adapters.figma_api import extract_figma_node_id
+from figma_to_pyside6.adapters.figma_json import load_figma_document
 from figma_to_pyside6.ui.main_window import WorkbenchMainWindow
-
-FIXTURE = Path(__file__).parent / "fixtures" / "figma_json" / "sample_figma.json"
-
-
-@pytest.fixture
-def qt_app():
-    app = QApplication.instance() or QApplication([])
-    yield app
-    app.quit()
-
-
-class FakeNetworkManager:
-    def __init__(self):
-        self.request = None
-
-    def get(self, request):
-        self.request = request
-
-
-class FakeNetworkReply:
-    def __init__(self, payload: dict, status_code: int = 200):
-        self.payload = payload
-        self.status_code = status_code
-
-    def error(self):
-        return QNetworkReply.NetworkError.NoError
-
-    def attribute(self, attribute):
-        if attribute == QNetworkRequest.Attribute.HttpStatusCodeAttribute:
-            return self.status_code
-        return None
-
-    def readAll(self):
-        return json.dumps(self.payload).encode("utf-8")
-
-    def deleteLater(self):
-        pass
 
 
 def test_workbench_starts_with_three_step_flow(qt_app):
@@ -63,6 +30,14 @@ def test_workbench_starts_with_three_step_flow(qt_app):
     assert qt_app is not None
 
 
+def test_workbench_starts_maximized_without_theme_switchers(qt_app):
+    window = WorkbenchMainWindow()
+
+    assert window.windowState() & Qt.WindowState.WindowMaximized
+    assert window.findChild(QComboBox) is None
+    assert "#00F0FF" in window.styleSheet().upper()
+
+
 def test_verification_selects_frames_and_generates_project(qt_app, tmp_path):
     window = WorkbenchMainWindow()
     network = FakeNetworkManager()
@@ -73,7 +48,7 @@ def test_verification_selects_frames_and_generates_project(qt_app, tmp_path):
     window._verify_figma_link()
 
     assert network.request.url().path() == "/v1/files/AbC123/nodes"
-    assert network.request.url().query() == "ids=4431:19072&depth=2"
+    assert network.request.url().query() == "ids=4431:19072&depth=3"
     assert network.request.rawHeader("X-Figma-Token") == b"test-token"
     assert window.figma_token_input.text() == ""
 
@@ -117,9 +92,9 @@ def test_verification_selects_frames_and_generates_project(qt_app, tmp_path):
     window.output_dir_input.setText(str(output_dir))
     window._generate_project()
 
-    generated_source = (output_dir / "main.py").read_text(encoding="utf-8")
-    assert "Login" in generated_source
-    assert "Dashboard" not in generated_source
+    pages_dir = output_dir / "src" / "ui" / "pages"
+    assert (pages_dir / "login_page.py").exists()
+    assert not (pages_dir / "dashboard_page.py").exists()
 
 
 def test_invalid_figma_link_does_not_send_request(qt_app):
@@ -152,8 +127,67 @@ def test_unavailable_figma_file_cannot_be_generated(qt_app):
     assert "permissions" in window.statusBar().currentMessage()
 
 
-def test_extract_figma_node_id_from_link():
-    assert (
-        extract_figma_node_id("https://www.figma.com/design/AbC123/Mockup?node-id=4431-19072")
-        == "4431:19072"
+def test_b4_request_has_timeout_and_timeout_error_is_reported(qt_app):
+    window = WorkbenchMainWindow()
+    network = FakeNetworkManager()
+    window._network_manager = network
+    window.figma_link_input.setText("https://www.figma.com/design/AbC123/Mockup")
+    window.figma_token_input.setText("test-token")
+
+    window._verify_figma_link()
+
+    assert network.request.transferTimeout() == 30_000
+    assert network.request.url().query() == "depth=4"  # B2: reach frame children
+
+    class TimedOut(FakeNetworkReply):
+        def error(self):
+            return QNetworkReply.NetworkError.OperationCanceledError
+
+    window._finish_figma_verification(TimedOut({}))
+
+    assert "did not respond" in window.statusBar().currentMessage()
+    assert window.verify_button.isEnabled()
+    assert window.verify_button.text() == "Verify link"
+
+
+def test_b12_empty_project_name_and_output_dir_fall_back_to_defaults(
+    qt_app: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B12: an empty output field must not write the project into the working directory."""
+    from PySide6.QtCore import Qt
+
+    from figma_to_pyside6.ui.main_window import WorkbenchMainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = WorkbenchMainWindow()
+    window._set_document(load_figma_document(FIXTURE), source="test")
+    window.frame_list.item(0).setCheckState(Qt.CheckState.Checked)
+    window.project_name_input.setText("   ")
+    window.output_dir_input.setText("")
+
+    window._generate_project()
+
+    assert (tmp_path / "generated_project" / "main.py").exists()
+    assert not (tmp_path / "main.py").exists()
+    assert "GeneratedApp" in (tmp_path / "generated_project/src/ui/main_window.py").read_text(
+        encoding="utf-8"
     )
+
+
+def test_b11_unwritable_output_is_reported_not_raised(qt_app: object, tmp_path: Path) -> None:
+    """B11: an OSError while generating shows a message; the window stays usable."""
+    from PySide6.QtCore import Qt
+
+    from figma_to_pyside6.ui.main_window import WorkbenchMainWindow
+
+    blocker = tmp_path / "file.txt"
+    blocker.write_text("x", encoding="utf-8")
+    window = WorkbenchMainWindow()
+    window._set_document(load_figma_document(FIXTURE), source="test")
+    window.frame_list.item(0).setCheckState(Qt.CheckState.Checked)
+    window.output_dir_input.setText(str(blocker))
+
+    window._generate_project()
+
+    assert window.statusBar().currentMessage()
+    assert window.result_label.text() == ""

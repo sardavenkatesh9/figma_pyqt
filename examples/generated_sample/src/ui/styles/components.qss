@@ -1,6 +1,90 @@
-QPushButton {
-    background: #2563eb;
-    color: white;
+QLineEdit, QListWidget, QComboBox {
+    background: #07070D;
+    border: 1px solid #2A2A44;
     border-radius: 8px;
-    padding: 8px 12px;
+    padding: 9px 12px;
+    selection-background-color: #00F0FF;
+    selection-color: #04040A;
+}
+QLineEdit:hover, QListWidget:hover {
+    border: 1px solid #8A8FB0;
+}
+QLineEdit:focus, QListWidget:focus, QComboBox:focus {
+    border: 1px solid #00F0FF;
+}
+QListWidget::item {
+    padding: 9px 8px;
+    border-radius: 6px;
+}
+QListWidget::item:hover {
+    background: #161626;
+}
+QListWidget::item:selected {
+    background: #161626;
+    color: #00F0FF;
+    border: 1px solid #00F0FF;
+}
+QListWidget::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #8A8FB0;
+    border-radius: 4px;
+    background: #07070D;
+}
+QListWidget::indicator:checked {
+    background: #00F0FF;
+    border: 1px solid #00F0FF;
+}
+QPushButton {
+    background: #161626;
+    color: #00F0FF;
+    border: 1px solid #00F0FF;
+    border-radius: 8px;
+    padding: 9px 18px;
+    font-weight: 600;
+}
+QPushButton:hover {
+    background: #00F0FF;
+    color: #04040A;
+}
+QPushButton:pressed {
+    background: #FF2BD6;
+    border-color: #FF2BD6;
+    color: #04040A;
+}
+QPushButton:disabled {
+    color: #8A8FB0;
+    border-color: #2A2A44;
+    background: #0E0E18;
+}
+QPushButton#generateButton {
+    background: #00F0FF;
+    color: #04040A;
+    border: none;
+    padding: 13px 18px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+QPushButton#generateButton:hover {
+    background: #FF2BD6;
+}
+QPushButton#generateButton:disabled {
+    background: #161626;
+    color: #8A8FB0;
+}
+QPushButton#navButton {
+    text-align: left;
+    background: transparent;
+    color: #8A8FB0;
+    border: 1px solid transparent;
+    padding: 11px 16px;
+}
+QPushButton#navButton:hover {
+    color: #00F0FF;
+    background: #161626;
+}
+QPushButton#navButton:checked {
+    color: #00F0FF;
+    background: #161626;
+    border: 1px solid #00F0FF;
 }

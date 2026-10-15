@@ -1,3 +1,5 @@
+"""Command line interface and GUI entry point."""
+
 from __future__ import annotations
 
 import argparse
@@ -5,16 +7,19 @@ import json
 import sys
 from pathlib import Path
 
+from figma_to_pyside6 import config
 from figma_to_pyside6.adapters.figma_json import load_figma_document
 from figma_to_pyside6.application.conversion_service import convert_document
+from figma_to_pyside6.application.validation_service import validate_generated_project
 from figma_to_pyside6.ui.main_window import main as launch_gui
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser with all sub-commands."""
     parser = argparse.ArgumentParser(
         prog="figma-to-pyside6", description="Figma to PySide6 converter"
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     inspect_parser = subparsers.add_parser("inspect", help="Inspect a local Figma JSON document")
     inspect_parser.add_argument("path", type=Path, help="Path to a Figma JSON export")
@@ -23,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         "convert", help="Convert a local Figma JSON document into a generated PySide6 app"
     )
     convert_parser.add_argument("path", type=Path, help="Path to a Figma JSON export")
-    convert_parser.add_argument("--project-name", default="GeneratedApp")
+    convert_parser.add_argument("--project-name", default=config.DEFAULT_PROJECT_NAME)
     convert_parser.add_argument("--output-dir", type=Path, default=None)
 
     validate_parser = subparsers.add_parser(
@@ -47,10 +52,7 @@ def _handle_inspect(path: Path) -> int:
     payload = {
         "name": document.name,
         "frame_count": len(document.frames),
-        "frames": [
-            {"id": frame.node_id, "name": frame.name, "width": frame.width, "height": frame.height}
-            for frame in document.frames
-        ],
+        "frames": [frame.summary() for frame in document.frames],
     }
     print(json.dumps(payload, indent=2))
     return 0
@@ -74,9 +76,13 @@ def _handle_convert(path: Path, project_name: str, output_dir: Path | None) -> i
 
 def _handle_validate(path: Path) -> int:
     if path.is_dir():
-        main_file = path / "main.py"
-        if not main_file.exists():
-            print(f"Validation failed: missing {main_file}")
+        report = validate_generated_project(path)
+        failed = [c for c in report["checks"] if c["status"] == "FAIL"]
+        if failed:
+            for check in failed:
+                print(
+                    f"Validation failed: {check['id']} {check['description']} (missing or invalid)"
+                )
             return 2
         print(f"Validated project directory: {path}")
         return 0
@@ -101,8 +107,20 @@ def _handle_report(path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI.
+
+    Args:
+        argv: Arguments to parse; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        Process exit code. With no sub-command the GUI is launched.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command is None:
+        launch_gui()
+        return 0
 
     if args.command == "inspect":
         return _handle_inspect(args.path)

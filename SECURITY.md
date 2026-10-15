@@ -1,14 +1,10 @@
 # Security
 
-This project treats all imported Figma data and generated output as untrusted.
-
-## Controls
-
-- JSON parsing is restricted to local file input and explicit validation.
-- Generated project output is written into a staged directory before publication.
-- Arbitrary dynamic code execution is not performed during conversion.
-- Generated code is previewed only via a separate process boundary when launched from the GUI.
+Imported Figma data and generated output are treated as untrusted. See `docs/security.md` for the
+controls the code implements and, as importantly, what it does not do (no sandboxing of the output
+directory, unsigned binaries).
 
 ## Reporting
 
-Report vulnerabilities privately to the project maintainer.
+Report vulnerabilities privately to the project maintainer; please do not open public issues for them.
+Never include a Figma access token in a report.

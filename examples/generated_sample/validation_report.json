@@ -1,18 +1,31 @@
 {
-  "project_name": "DemoFlow",
-  "document_name": "Sample Screen",
+  "project_dir": "examples\\generated_sample",
   "checks": [
     {
       "id": "GEN-001",
       "status": "PASS",
       "severity": "INFO",
-      "description": "Generated project files exist"
+      "description": "main.py exists"
     },
     {
       "id": "GEN-002",
       "status": "PASS",
       "severity": "INFO",
-      "description": "Generated project is importable"
+      "description": "manifest exists and is valid"
+    },
+    {
+      "id": "GEN-003",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "one page exists per manifest frame"
+    },
+    {
+      "id": "GEN-004",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "all Python files parse"
     }
-  ]
+  ],
+  "project_name": "DemoFlow",
+  "document_name": "Sample Screen"
 }

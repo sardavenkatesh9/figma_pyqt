@@ -1,16 +1,19 @@
+"""Desktop workbench: verify a Figma link, pick frames, generate a project."""
+
 from __future__ import annotations
 
+import dataclasses
 import json
+import logging
 import os
-from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, QUrlQuery
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFileDialog,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,14 +26,49 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from figma_to_pyside6.adapters.figma_api import extract_figma_file_key, extract_figma_node_id
-from figma_to_pyside6.adapters.figma_json import load_figma_document, parse_figma_document
+from figma_to_pyside6 import config
+from figma_to_pyside6.adapters.figma_api import (
+    build_files_request,
+    document_from_response,
+    extract_figma_file_key,
+    extract_figma_node_id,
+)
 from figma_to_pyside6.application.conversion_service import convert_document
 from figma_to_pyside6.domain.models import FigmaDocument, FigmaFrame
+from figma_to_pyside6.resources import app_icon
+from figma_to_pyside6.theme import COLORS, build_stylesheet
+
+logger = logging.getLogger(__name__)
+
+_NO_FILE_TEXT = "No file verified"
+_LOAD_FRAMES_HINT = "Verify a Figma file to load its frames"
+_FIGMA_ACCESS_ERROR = (
+    "Could not access the Figma file. Check the link, token, and file permissions."
+)
+_FIGMA_TIMEOUT_ERROR = "Figma did not respond in time. Check your connection and try again."
+_CONTENT_MARGINS = (32, 24, 32, 24)
+
+
+def _glow(widget: QWidget, color: str, blur: int) -> None:
+    """Give ``widget`` a neon glow; QSS has no box-shadow so use a graphics effect."""
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setColor(QColor(color))
+    effect.setBlurRadius(blur)
+    effect.setOffset(0, 0)
+    widget.setGraphicsEffect(effect)
+
+
+def _step_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setObjectName("stepLabel")
+    return label
 
 
 class WorkbenchMainWindow(QMainWindow):
+    """Three-step workbench: verify link, select frames, generate."""
+
     def __init__(self) -> None:
+        """Build the window; it opens maximized."""
         super().__init__()
         self.document: FigmaDocument | None = None
         self.selected_frames: list[FigmaFrame] = []
@@ -38,222 +76,153 @@ class WorkbenchMainWindow(QMainWindow):
         self._pending_node_id: str | None = None
         self._network_manager = QNetworkAccessManager(self)
         self._network_manager.finished.connect(self._finish_figma_verification)
-        self.figma_link_input: QLineEdit | None = None
-        self.figma_token_input: QLineEdit | None = None
-        self.verify_button: QPushButton | None = None
-        self.document_label: QLabel | None = None
-        self.frame_summary: QLabel | None = None
-        self.frame_list: QListWidget | None = None
-        self.project_name_input: QLineEdit | None = None
-        self.output_dir_input: QLineEdit | None = None
-        self.generate_button: QPushButton | None = None
-        self.result_label: QLabel | None = None
-        self.theme_selector: QComboBox | None = None
-        self.style_selector: QComboBox | None = None
+        self._create_widgets()
         self.setWindowTitle("Figma to PySide6 Workbench")
-        self.resize(900, 760)
-        self.setMinimumSize(640, 600)
+        self.setWindowIcon(app_icon())
+        self.setStyleSheet(build_stylesheet())
+        self.resize(*config.WINDOW_DEFAULT_SIZE)
+        self.setMinimumSize(*config.WINDOW_MIN_SIZE)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         self._build_ui()
+        _glow(self.title_label, COLORS["cyan"], 28)
+        _glow(self.generate_button, COLORS["cyan"], 36)
+        _glow(self.verify_button, COLORS["cyan"], 22)
 
-    def _build_ui(self) -> None:
-        central = QWidget(self)
-        outer_layout = QVBoxLayout(central)
-        outer_layout.setContentsMargins(32, 24, 32, 24)
-        header = QHBoxLayout()
-        title = QLabel("Figma to PySide6")
-        title.setObjectName("appTitle")
-        header.addWidget(title)
-        header.addStretch(1)
-        self.theme_selector = QComboBox()
-        self.theme_selector.setObjectName("themeSelector")
-        self.theme_selector.addItems(["Dark", "Light"])
-        self.theme_selector.setToolTip("Choose dark or light colors")
-        self.style_selector = QComboBox()
-        self.style_selector.setObjectName("styleSelector")
-        self.style_selector.addItems(["Modern", "Standard"])
-        self.style_selector.setToolTip("Choose modern or standard Qt styling")
-        self.theme_selector.currentTextChanged.connect(self._apply_appearance)
-        self.style_selector.currentTextChanged.connect(self._apply_appearance)
-        header.addWidget(self.theme_selector)
-        header.addWidget(self.style_selector)
-        outer_layout.addLayout(header)
-
-        content = QWidget()
-        content.setObjectName("workflowContent")
-        content.setMaximumWidth(1040)
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 28, 0, 12)
-        layout.setSpacing(16)
-
-        verify_step = QLabel("01  VERIFY FIGMA FILE")
-        verify_step.setObjectName("stepLabel")
-        layout.addWidget(verify_step)
+    # ------------------------------------------------------------------ construction
+    def _create_widgets(self) -> None:
+        self.title_label = QLabel("FIGMA  →  PYSIDE6")
+        self.title_label.setObjectName("appTitle")
         self.figma_link_input = QLineEdit()
         self.figma_link_input.setObjectName("figmaLinkInput")
         self.figma_link_input.setPlaceholderText("https://www.figma.com/design/...")
-        layout.addWidget(self.figma_link_input)
-
-        credentials = QHBoxLayout()
         self.figma_token_input = QLineEdit()
         self.figma_token_input.setObjectName("figmaTokenInput")
         self.figma_token_input.setPlaceholderText("Figma personal access token")
         self.figma_token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        credentials.addWidget(self.figma_token_input, 1)
         self.verify_button = QPushButton("Verify link")
         self.verify_button.clicked.connect(self._verify_figma_link)
-        credentials.addWidget(self.verify_button)
-        layout.addLayout(credentials)
-
-        self.document_label = QLabel("No file verified")
-        layout.addWidget(self.document_label)
-
-        select_step = QLabel("02  SELECT FRAMES")
-        select_step.setObjectName("stepLabel")
-        layout.addWidget(select_step)
+        self.document_label = QLabel(_NO_FILE_TEXT)
         self.frame_list = QListWidget()
         self.frame_list.setObjectName("frameList")
         self.frame_list.setEnabled(False)
         self.frame_list.itemChanged.connect(self._update_selected_frames)
-        layout.addWidget(self.frame_list, 1)
-
-        self.frame_summary = QLabel("Verify a Figma file to load its frames")
-        layout.addWidget(self.frame_summary)
-
-        generate_step = QLabel("03  GENERATE PROJECT")
-        generate_step.setObjectName("stepLabel")
-        layout.addWidget(generate_step)
-        self.project_name_input = QLineEdit("GeneratedApp")
+        self.frame_summary = QLabel(_LOAD_FRAMES_HINT)
+        self.project_name_input = QLineEdit(config.DEFAULT_PROJECT_NAME)
         self.project_name_input.setObjectName("projectNameInput")
         self.project_name_input.setPlaceholderText("Project name")
-        layout.addWidget(self.project_name_input)
-
-        output_row = QHBoxLayout()
-        self.output_dir_input = QLineEdit(str(Path.cwd() / "generated_project"))
+        self.output_dir_input = QLineEdit(str(config.default_output_dir()))
         self.output_dir_input.setObjectName("outputDirectoryInput")
+        self.generate_button = QPushButton("Generate project")
+        self.generate_button.setObjectName("generateButton")
+        self.generate_button.setEnabled(False)
+        self.generate_button.clicked.connect(self._generate_project)
+        self.result_label = QLabel("")
+        self.result_label.setWordWrap(True)
+
+    def _build_ui(self) -> None:
+        central = QWidget(self)
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(*_CONTENT_MARGINS)
+        header = QHBoxLayout()
+        header.addWidget(self.title_label)
+        header.addStretch(1)
+        outer.addLayout(header)
+
+        content = QWidget()
+        content.setObjectName("workflowContent")
+        content.setMaximumWidth(config.CONTENT_MAX_WIDTH)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 28, 0, 12)
+        layout.setSpacing(16)
+        self._add_verify_step(layout)
+        self._add_select_step(layout)
+        self._add_generate_step(layout)
+        outer.addWidget(content, 1, Qt.AlignmentFlag.AlignHCenter)
+
+        self.setCentralWidget(central)
+        self.statusBar().showMessage("Ready")
+
+    def _add_verify_step(self, layout: QVBoxLayout) -> None:
+        layout.addWidget(_step_label("01  VERIFY FIGMA FILE"))
+        layout.addWidget(self.figma_link_input)
+        credentials = QHBoxLayout()
+        credentials.addWidget(self.figma_token_input, 1)
+        credentials.addWidget(self.verify_button)
+        layout.addLayout(credentials)
+        layout.addWidget(self.document_label)
+
+    def _add_select_step(self, layout: QVBoxLayout) -> None:
+        layout.addWidget(_step_label("02  SELECT FRAMES"))
+        layout.addWidget(self.frame_list, 1)
+        layout.addWidget(self.frame_summary)
+
+    def _add_generate_step(self, layout: QVBoxLayout) -> None:
+        layout.addWidget(_step_label("03  GENERATE PROJECT"))
+        layout.addWidget(self.project_name_input)
+        output_row = QHBoxLayout()
         output_row.addWidget(self.output_dir_input, 1)
         browse_button = QPushButton("Browse")
         browse_button.clicked.connect(self._browse_output_directory)
         output_row.addWidget(browse_button)
         layout.addLayout(output_row)
-
-        self.generate_button = QPushButton("Generate project")
-        self.generate_button.setObjectName("generateButton")
-        self.generate_button.setEnabled(False)
-        self.generate_button.clicked.connect(self._generate_project)
         layout.addWidget(self.generate_button)
-
-        self.result_label = QLabel("")
-        self.result_label.setWordWrap(True)
         layout.addWidget(self.result_label)
 
-        outer_layout.addWidget(content, 1, Qt.AlignmentFlag.AlignHCenter)
-        self.setCentralWidget(central)
-        self.statusBar().showMessage("Ready")
-        self._apply_appearance()
-
-    def _apply_appearance(self, *_args) -> None:
-        theme = self.theme_selector.currentText() if self.theme_selector is not None else "Dark"
-        modern = self.style_selector is None or self.style_selector.currentText() == "Modern"
-        dark = theme == "Dark"
-        colors = (
-            {
-                "window": "#11151B",
-                "surface": "#181F28",
-                "raised": "#202A36",
-                "border": "#384556",
-                "text": "#F1F5F9",
-                "muted": "#AAB6C4",
-                "accent": "#67E8F9",
-                "accent_text": "#0B1720",
-            }
-            if dark
-            else {
-                "window": "#F4F7FA",
-                "surface": "#FFFFFF",
-                "raised": "#EDF2F7",
-                "border": "#CBD5E1",
-                "text": "#15202B",
-                "muted": "#526273",
-                "accent": "#087E8B",
-                "accent_text": "#FFFFFF",
-            }
-        )
-        palette = QPalette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(colors["window"]))
-        palette.setColor(QPalette.ColorRole.WindowText, QColor(colors["text"]))
-        palette.setColor(QPalette.ColorRole.Base, QColor(colors["surface"]))
-        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(colors["raised"]))
-        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(colors["surface"]))
-        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(colors["text"]))
-        palette.setColor(QPalette.ColorRole.Text, QColor(colors["text"]))
-        palette.setColor(QPalette.ColorRole.Button, QColor(colors["raised"]))
-        palette.setColor(QPalette.ColorRole.ButtonText, QColor(colors["text"]))
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(colors["accent"]))
-        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(colors["accent_text"]))
-        app = QApplication.instance()
-        if app is not None:
-            app.setPalette(palette)
-
-        if not modern:
-            self.setStyleSheet("")
-            return
-
-        self.setStyleSheet(
-            f"""
-            QWidget#workflowContent {{ background: {colors['surface']}; border: 1px solid {colors['border']}; border-radius: 12px; }}
-            QLabel#appTitle {{ font-size: 22px; font-weight: 700; }}
-            QLabel#stepLabel {{ color: {colors['accent']}; font-size: 11px; font-weight: 700; }}
-            QLineEdit, QListWidget, QComboBox {{ background: {colors['window']}; border: 1px solid {colors['border']}; border-radius: 7px; padding: 9px 11px; }}
-            QLineEdit:focus, QListWidget:focus, QComboBox:focus {{ border: 1px solid {colors['accent']}; }}
-            QListWidget::item {{ padding: 8px; border-radius: 5px; }}
-            QPushButton {{ background: {colors['raised']}; border: 1px solid {colors['border']}; border-radius: 7px; padding: 9px 14px; }}
-            QPushButton:hover {{ border-color: {colors['accent']}; }}
-            QPushButton:disabled {{ color: {colors['muted']}; }}
-            QPushButton#generateButton {{ background: {colors['accent']}; color: {colors['accent_text']}; font-weight: 700; border: none; padding: 12px 16px; }}
-            QStatusBar {{ color: {colors['muted']}; }}
-            """
-        )
-
-    def _load_document(self, path: str | Path) -> None:
-        document = load_figma_document(path)
-        self._set_document(document, source=str(path), select_all=True)
-
-    def _set_document(
-        self, document: FigmaDocument, *, source: str, select_all: bool = False
-    ) -> None:
+    # ------------------------------------------------------------------ document state
+    def _set_document(self, document: FigmaDocument, *, source: str) -> None:
         self.document = document
         self.selected_frames = []
-        if self.result_label is not None:
-            self.result_label.clear()
-        if self.document_label is not None:
-            self.document_label.setText(f"Verified: {document.name}")
-        if self.frame_list is not None:
-            self.frame_list.clear()
-            self.frame_list.setEnabled(True)
-            for frame in document.frames:
-                item = QListWidgetItem(f"{frame.name}  |  {frame.width} x {frame.height}")
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Checked if select_all else Qt.CheckState.Unchecked)
-                self.frame_list.addItem(item)
-        if select_all:
-            self.selected_frames = list(document.frames)
+        self.result_label.clear()
+        self.document_label.setText(f"Verified: {document.name}")
+        self.frame_list.clear()
+        self.frame_list.setEnabled(True)
+        for frame in document.frames:
+            item = QListWidgetItem(f"{frame.name}  |  {frame.width} x {frame.height}")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            self.frame_list.addItem(item)
         self._update_selected_frames()
         self.statusBar().showMessage(f"{len(document.frames)} frames loaded from {source}")
 
-    def _verify_figma_link(self) -> None:
-        if (
-            self.figma_link_input is None
-            or self.figma_token_input is None
-            or self.verify_button is None
-        ):
+    def _clear_document_state(self) -> None:
+        self.document = None
+        self.selected_frames = []
+        self.frame_list.clear()
+        self.frame_list.setEnabled(False)
+        self.document_label.setText(_NO_FILE_TEXT)
+        self.frame_summary.setText(_LOAD_FRAMES_HINT)
+        self.generate_button.setEnabled(False)
+        self.result_label.clear()
+
+    def _update_selected_frames(self) -> None:
+        if self.document is None:
+            self.selected_frames = []
+            self.frame_summary.setText("No document loaded")
+            self.generate_button.setEnabled(False)
             return
+
+        self.selected_frames = [
+            frame
+            for index, frame in enumerate(self.document.frames)
+            if self.frame_list.item(index).checkState() == Qt.CheckState.Checked
+        ]
+        if not self.selected_frames:
+            self.frame_summary.setText("No frames selected")
+        else:
+            names = ", ".join(frame.name for frame in self.selected_frames)
+            self.frame_summary.setText(
+                f"{len(self.selected_frames)}/{len(self.document.frames)} selected: {names}"
+            )
+        self.generate_button.setEnabled(bool(self.selected_frames))
+
+    # ------------------------------------------------------------------ Figma verification
+    def _verify_figma_link(self) -> None:
         self._clear_document_state()
         link = self.figma_link_input.text().strip()
         token = self.figma_token_input.text().strip()
         if not token:
             self.statusBar().showMessage("Enter a Figma personal access token to verify this file")
             return
-
         try:
             file_key = extract_figma_file_key(link)
             node_id = extract_figma_node_id(link)
@@ -265,58 +234,33 @@ class WorkbenchMainWindow(QMainWindow):
         self._pending_node_id = node_id
         self.verify_button.setEnabled(False)
         self.verify_button.setText("Verifying…")
-        if node_id is not None:
-            request_url = QUrl(f"https://api.figma.com/v1/files/{file_key}/nodes")
-            query = QUrlQuery()
-            query.addQueryItem("ids", node_id)
-        else:
-            request_url = QUrl(f"https://api.figma.com/v1/files/{file_key}")
-            query = QUrlQuery()
-        query.addQueryItem("depth", "2")
+        url, items = build_files_request(file_key, node_id)
+        request_url = QUrl(url)
+        query = QUrlQuery()
+        for key, value in items:
+            query.addQueryItem(key, value)
         request_url.setQuery(query)
         request = QNetworkRequest(request_url)
         request.setRawHeader(b"X-Figma-Token", token.encode("utf-8"))
+        request.setTransferTimeout(config.FIGMA_REQUEST_TIMEOUT_MS)
         self._network_manager.get(request)
         self.figma_token_input.clear()
         self.statusBar().showMessage("Verifying Figma file and loading frames…")
 
-    def _clear_document_state(self) -> None:
-        self.document = None
-        self.selected_frames = []
-        if self.frame_list is not None:
-            self.frame_list.clear()
-            self.frame_list.setEnabled(False)
-        if self.document_label is not None:
-            self.document_label.setText("No file verified")
-        if self.frame_summary is not None:
-            self.frame_summary.setText("Verify a Figma file to load its frames")
-        if self.generate_button is not None:
-            self.generate_button.setEnabled(False)
-        if self.result_label is not None:
-            self.result_label.clear()
-
     def _finish_figma_verification(self, reply: QNetworkReply) -> None:
         try:
             status_code = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+            if reply.error() == QNetworkReply.NetworkError.OperationCanceledError:
+                raise ValueError(_FIGMA_TIMEOUT_ERROR)
             if (
                 reply.error() != QNetworkReply.NetworkError.NoError
                 or not status_code
                 or not 200 <= status_code < 300
             ):
-                raise ValueError(
-                    "Could not access the Figma file. Check the link, token, and file permissions."
-                )
+                raise ValueError(_FIGMA_ACCESS_ERROR)
             payload = json.loads(bytes(reply.readAll().data()).decode("utf-8"))
             source = self._pending_source_url or "Figma link"
-            if self._pending_node_id is not None:
-                node_entry = payload.get("nodes", {}).get(self._pending_node_id)
-                node = node_entry.get("document") if node_entry else None
-                if not node:
-                    raise ValueError("The linked Figma section could not be found.")
-                payload = {"name": node.get("name"), "document": node}
-                document = parse_figma_document(payload, source=source, recurse_frames=False)
-            else:
-                document = parse_figma_document(payload, source=source)
+            document = document_from_response(payload, self._pending_node_id, source)
             self._set_document(document, source=source)
         except (ValueError, json.JSONDecodeError) as exc:
             self._clear_document_state()
@@ -325,37 +269,10 @@ class WorkbenchMainWindow(QMainWindow):
             self._pending_source_url = None
             self._pending_node_id = None
             reply.deleteLater()
-            if self.verify_button is not None:
-                self.verify_button.setEnabled(True)
-                self.verify_button.setText("Verify link")
+            self.verify_button.setEnabled(True)
+            self.verify_button.setText("Verify link")
 
-    def _update_selected_frames(self) -> None:
-        if self.document is None or self.frame_list is None:
-            self.selected_frames = []
-            if self.frame_summary is not None:
-                self.frame_summary.setText("No document loaded")
-            if self.generate_button is not None:
-                self.generate_button.setEnabled(False)
-            return
-
-        selected = []
-        for index in range(self.frame_list.count()):
-            item = self.frame_list.item(index)
-            if item.checkState() == Qt.CheckState.Checked:
-                selected.append(self.document.frames[index])
-        self.selected_frames = selected
-
-        if self.frame_summary is not None:
-            if not selected:
-                self.frame_summary.setText("No frames selected")
-            else:
-                names = ", ".join(frame.name for frame in selected)
-                self.frame_summary.setText(
-                    f"{len(selected)}/{len(self.document.frames)} selected: {names}"
-                )
-        if self.generate_button is not None:
-            self.generate_button.setEnabled(bool(selected))
-
+    # ------------------------------------------------------------------ generation
     def _show_message(self, title: str, message: str, kind: str = "info") -> None:
         if os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen":
             self.statusBar().showMessage(message)
@@ -369,10 +286,8 @@ class WorkbenchMainWindow(QMainWindow):
             QMessageBox.information(self, title, message)
 
     def _browse_output_directory(self) -> None:
-        if self.output_dir_input is None:
-            return
         directory = QFileDialog.getExistingDirectory(
-            self, "Select output directory", str(Path.cwd())
+            self, "Select output directory", str(config.default_output_dir().parent)
         )
         if directory:
             self.output_dir_input.setText(directory)
@@ -380,10 +295,9 @@ class WorkbenchMainWindow(QMainWindow):
     def _generate_project(self) -> None:
         if self.document is None:
             self._show_message(
-                "No input", "Please import a Figma JSON file before converting.", kind="warning"
+                "No input", "Please verify a Figma file before generating.", kind="warning"
             )
             return
-
         if not self.selected_frames:
             self._show_message(
                 "No frames selected",
@@ -392,37 +306,32 @@ class WorkbenchMainWindow(QMainWindow):
             )
             return
 
-        project_name = (
-            self.project_name_input.text().strip()
-            if self.project_name_input is not None
-            else "GeneratedApp"
-        )
-        output_dir = (
-            self.output_dir_input.text().strip()
-            if self.output_dir_input is not None
-            else str(Path.cwd() / "generated_project")
-        )
-
+        selected_document = dataclasses.replace(self.document, frames=list(self.selected_frames))
         try:
-            selected_document = type(self.document)(
-                name=self.document.name,
-                node_id=self.document.node_id,
-                frames=list(self.selected_frames),
-                source=self.document.source,
-            )
             result = convert_document(
-                selected_document, project_name=project_name, output_dir=output_dir
+                selected_document,
+                project_name=self.project_name_input.text().strip() or config.DEFAULT_PROJECT_NAME,
+                output_dir=self.output_dir_input.text().strip() or config.default_output_dir(),
             )
-            message = f"Project generated at {result.output_dir}"
-            if self.result_label is not None:
-                self.result_label.setText(message)
-            self.statusBar().showMessage(message)
-        except Exception as exc:  # pragma: no cover - GUI error reporting path
+        except OSError as exc:
+            logger.exception("Project generation failed")
             self._show_message("Generation failed", str(exc), kind="critical")
+            return
+
+        message = f"Project generated at {result.output_dir}"
+        if result.warnings:
+            message += f" ({len(result.warnings)} warning(s); first: {result.warnings[0]})"
+        self.result_label.setText(message)
+        self.statusBar().showMessage(message)
 
 
 def main() -> None:
-    app = QApplication([])
+    """Launch the workbench maximized."""
+    app = QApplication.instance() or QApplication([])
+    if not isinstance(app, QApplication):
+        raise RuntimeError("A QApplication is required to launch the workbench")
+    app.setStyle("Fusion")
+    app.setWindowIcon(app_icon())
     window = WorkbenchMainWindow()
     window.showMaximized()
     app.exec()

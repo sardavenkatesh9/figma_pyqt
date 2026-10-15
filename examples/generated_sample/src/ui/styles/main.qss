@@ -1,9 +1,47 @@
-@import "tokens.qss";
-
-QMainWindow {
-    background: #f8fafc;
+QMainWindow, QStackedWidget {
+    background: #07070D;
 }
-
 QLabel {
-    padding: 6px 10px;
+    background: transparent;
+}
+QLabel#appTitle, QLabel#pageTitle {
+    color: #00F0FF;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+QLabel#stepLabel {
+    color: #FF2BD6;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+}
+QWidget#workflowContent, QFrame#card {
+    background: #0E0E18;
+    border: 1px solid #2A2A44;
+    border-radius: 14px;
+}
+QWidget#workflowContent QLabel, QFrame#card QLabel {
+    background: transparent;
+}
+QStatusBar {
+    color: #8A8FB0;
+    background: #0E0E18;
+    border-top: 1px solid #2A2A44;
+}
+QScrollBar:vertical {
+    background: #07070D;
+    width: 10px;
+}
+QScrollBar::handle:vertical {
+    background: #2A2A44;
+    border-radius: 5px;
+    min-height: 24px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #00F0FF;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0;
+    width: 0;
 }

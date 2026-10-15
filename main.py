@@ -1,3 +1,5 @@
+"""Development launcher: runs the CLI/GUI from a source checkout without installing."""
+
 import sys
 from pathlib import Path
 
